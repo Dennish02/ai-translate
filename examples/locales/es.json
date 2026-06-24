@@ -10,7 +10,7 @@
     "VACA": "Vaca"
   },
   "home": {
-    "greeting": "Hola {name}, tienes {count} tareas pendientes.",
-    "title": "Bienvenido a la granja."
+    "greeting": "Hola {name}, tienes {count} tareas pendientes",
+    "title": "Bienvenido a la granja"
   }
 }

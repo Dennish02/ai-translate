@@ -9,22 +9,35 @@ export type { GenerationOptions } from '../types.js'
 
 /**
  * Provider 'local': traduce con un modelo MT corriendo dentro de Node vía
- * transformers.js (por defecto NLLB-200). Sin API key, sin costo, offline.
+ * transformers.js. Sin API key, sin costo, offline.
  *
- * Compromiso vs. un LLM: NLLB es excelente traduciendo pero no "entiende"
- * placeholders, así que los enmascaramos (`[0]`, `[1]`) antes de traducir y los
- * restauramos después. ICU complejo (`{count, plural, ...}`) puede no
- * sobrevivir: para eso conviene un provider LLM (openrouter).
+ * Por defecto usa **MarianMT** (`Xenova/opus-mt-{src}-{tgt}`): modelos bilingües
+ * chicos y rápidos, muy buenos con texto corto de UI. Como son por par de
+ * idiomas, solo se descarga el que necesitás. Para pares sin modelo Marian
+ * publicado, seteá `model` a uno multilingüe (ej. NLLB: cubre 200 idiomas en un
+ * solo modelo, pero divaga más con labels sueltos).
+ *
+ * Compromiso vs. un LLM: estos modelos no "entienden" placeholders, así que los
+ * enmascaramos (`[0]`, `[1]`) antes de traducir y los restauramos después. ICU
+ * complejo (`{count, plural, ...}`) puede no sobrevivir: para eso conviene un
+ * provider LLM (openrouter).
  */
+
+/** Familia del modelo: define cómo se le pasan los idiomas. */
+type ModelFamily = 'marian' | 'nllb' | 'm2m'
 
 /** Firma mínima del pipeline de traducción de transformers.js. */
 export type TranslatePipeline = (
   texts: string[],
-  options: { src_lang: string; tgt_lang: string } & GenerationOptions,
+  // Marian es bilingüe y no recibe códigos; NLLB/M2M sí (src_lang/tgt_lang).
+  options: { src_lang?: string; tgt_lang?: string } & GenerationOptions,
 ) => Promise<Array<{ translation_text: string }>>
 
 export interface LocalOptions {
-  /** Modelo HF. Default: 'Xenova/nllb-200-distilled-600M'. */
+  /**
+   * Modelo HF. Si se omite, se usa MarianMT por par: `Xenova/opus-mt-{src}-{tgt}`.
+   * Para multilingüe en un solo modelo: 'Xenova/nllb-200-distilled-600M'.
+   */
   model?: string
   /**
    * Precisión de los pesos ONNX: 'fp32' (default, mejor calidad), 'fp16',
@@ -45,15 +58,17 @@ export interface LocalOptions {
 }
 
 /**
- * Defaults anti-repetición. NLLB es muy bueno con oraciones, pero con palabras
- * sueltas tiende a repetir tokens ("Bull The bull Bull"). Estos valores cortan
- * ese comportamiento sin degradar la traducción de frases normales.
+ * Defaults anti-repetición SOLO para NLLB/M2M: con palabras sueltas tienden a
+ * repetir tokens ("Bull The bull Bull") o a divagar. Estos valores lo cortan.
  *
- * `max_new_tokens` NO va acá a propósito: si el usuario no lo fija, lo calculamos
- * proporcional al input (ver {@link estimateMaxNewTokens}). Un tope fijo alto
- * (256) hacía que con labels de 1-2 palabras el modelo divagara.
+ * MarianMT NO los recibe: decodifica limpio por su cuenta y forzarle estos
+ * parámetros (pensados para otra familia) le mete ruido (puntuación de más,
+ * marcadores de localización). Para Marian dejamos el decoding natural.
+ *
+ * `max_new_tokens` tampoco va acá: para NLLB/M2M lo calculamos proporcional al
+ * input (ver {@link estimateMaxNewTokens}); para Marian no lo fijamos.
  */
-const DEFAULT_GENERATION: GenerationOptions = {
+const ANTI_REPEAT_GENERATION: GenerationOptions = {
   no_repeat_ngram_size: 3,
   repetition_penalty: 1.3,
   early_stopping: true,
@@ -110,50 +125,113 @@ const FLORES: Record<string, string> = {
 }
 
 export function createLocalClient(opts: LocalOptions = {}): ProviderClient {
-  const model = opts.model ?? 'Xenova/nllb-200-distilled-600M'
   const langMap = { ...FLORES, ...opts.langMap }
-  const generation = { ...DEFAULT_GENERATION, ...opts.generation }
   const load =
     opts.loadPipeline ?? ((m: string) => defaultLoadPipeline(m, opts.dtype))
 
-  // Cargar el modelo es caro: lo hacemos una sola vez por cliente.
-  let pipePromise: Promise<TranslatePipeline> | undefined
+  // Cargar un modelo es caro: cacheamos un pipeline por nombre de modelo. Con el
+  // default Marian (por par) eso es uno por idioma destino; con NLLB, uno solo.
+  const pipes = new Map<string, Promise<TranslatePipeline>>()
 
   return {
     async translateBatch(input: TranslateBatchInput) {
-      const src = toFlores(input.sourceLang, langMap)
-      const tgt = toFlores(input.targetLang, langMap)
-
       const keys = Object.keys(input.entries)
       if (keys.length === 0) return {}
+
+      const { sourceLang, targetLang } = input
+      const model = opts.model ?? marianModel(sourceLang, targetLang)
+      const family = modelFamily(model)
 
       const masked = keys.map((k) => maskPlaceholders(input.entries[k]!))
       const maskedTexts = masked.map((m) => m.masked)
 
-      if (!pipePromise) pipePromise = load(model)
-      const translator = await pipePromise
-
-      // Si el usuario no fijó max_new_tokens, lo derivamos del input del lote.
-      const gen = { ...generation }
-      if (gen.max_new_tokens == null) {
-        gen.max_new_tokens = estimateMaxNewTokens(maskedTexts)
+      let pipePromise = pipes.get(model)
+      if (!pipePromise) {
+        pipePromise = load(model)
+        pipes.set(model, pipePromise)
+      }
+      let translator: TranslatePipeline
+      try {
+        translator = await pipePromise
+      } catch (err) {
+        pipes.delete(model) // no cachear un fallo
+        if (!opts.model && family === 'marian') {
+          throw new Error(
+            `[ai-translate] no pude cargar el modelo Marian "${model}" para ` +
+              `${sourceLang}->${targetLang}: ese par no está publicado en ONNX. ` +
+              `Seteá un modelo multilingüe en la config con ` +
+              `localModel: 'Xenova/nllb-200-distilled-600M', o usá el provider ` +
+              `'openrouter' para ese idioma. Detalle: ${(err as Error).message}`,
+          )
+        }
+        throw err
       }
 
-      const outputs = await translator(maskedTexts, {
-        src_lang: src,
-        tgt_lang: tgt,
-        ...gen,
-      })
+      // Idiomas: Marian es bilingüe (no recibe códigos); NLLB usa FLORES-200;
+      // M2M-100 usa ISO 639-1.
+      const langOpts =
+        family === 'nllb'
+          ? { src_lang: toFlores(sourceLang, langMap), tgt_lang: toFlores(targetLang, langMap) }
+          : family === 'm2m'
+            ? { src_lang: short(sourceLang), tgt_lang: short(targetLang) }
+            : {}
+
+      // Marian decodifica natural (sin anti-repetición ni tope forzado); NLLB/M2M
+      // sí necesitan los frenos. En ambos casos el usuario puede sobreescribir.
+      let gen: GenerationOptions
+      if (family === 'marian') {
+        gen = { ...opts.generation }
+      } else {
+        gen = { ...ANTI_REPEAT_GENERATION, ...opts.generation }
+        if (gen.max_new_tokens == null) {
+          gen.max_new_tokens = estimateMaxNewTokens(maskedTexts)
+        }
+      }
+
+      const outputs = await translator(maskedTexts, { ...langOpts, ...gen })
 
       const result: Record<string, string> = {}
       keys.forEach((key, i) => {
-        const raw = outputs[i]?.translation_text
+        let raw = outputs[i]?.translation_text
         if (raw == null) return
+        if (family === 'marian') raw = stripKdeMarkers(raw)
         result[key] = unmaskPlaceholders(raw, masked[i]!.tokens)
       })
       return result
     },
   }
+}
+
+/** Nombre del modelo Marian por par de idiomas (códigos ISO 639-1). */
+function marianModel(src: string, tgt: string): string {
+  return `Xenova/opus-mt-${short(src)}-${short(tgt)}`
+}
+
+/** Reduce un código a ISO 639-1 (toma las 2 primeras letras: 'spa_Latn' -> 'sp' no aplica; usá códigos cortos). */
+function short(lang: string): string {
+  return lang.slice(0, 2).toLowerCase()
+}
+
+/**
+ * Quita los marcadores de contexto de localización KDE/Qt que MarianMT (OPUS)
+ * a veces pega en strings cortos, p.ej. "Guardar@info: whatsthis". Son ruido de
+ * su data de entrenamiento y jamás forman parte de una traducción real.
+ */
+function stripKdeMarkers(text: string): string {
+  return text
+    .replace(
+      /\s*@(info|action|title|label|option|item|tooltip|status|message|note)\b.*$/is,
+      '',
+    )
+    .trim()
+}
+
+/** Detecta la familia del modelo por su nombre para saber cómo pasar idiomas. */
+function modelFamily(model: string): ModelFamily {
+  const m = model.toLowerCase()
+  if (m.includes('nllb')) return 'nllb'
+  if (m.includes('m2m')) return 'm2m'
+  return 'marian' // opus-mt y bilingües en general
 }
 
 function toFlores(lang: string, map: Record<string, string>): string {

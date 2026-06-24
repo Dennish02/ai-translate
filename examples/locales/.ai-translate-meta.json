@@ -1,22 +1,12 @@
 {
   "es": {
-    "actions.save": "efc007a393f6",
-    "actions.cancel": "77dfd2135f4d",
     "category.NOV": "02f4a3c6aac9",
     "category.TORO": "8eeb23693821",
     "category.VACA": "33935f03e205",
     "category.TERNERO": "3c016a7539d4",
     "home.title": "fc5404d26836",
-    "home.greeting": "4b829e968124"
-  },
-  "pt": {
+    "home.greeting": "4b829e968124",
     "actions.save": "efc007a393f6",
-    "actions.cancel": "77dfd2135f4d",
-    "category.NOV": "02f4a3c6aac9",
-    "category.TORO": "8eeb23693821",
-    "category.VACA": "33935f03e205",
-    "category.TERNERO": "3c016a7539d4",
-    "home.title": "fc5404d26836",
-    "home.greeting": "4b829e968124"
+    "actions.cancel": "77dfd2135f4d"
   }
 }

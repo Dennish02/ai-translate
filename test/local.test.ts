@@ -23,15 +23,51 @@ describe('maskPlaceholders / unmaskPlaceholders', () => {
 })
 
 describe('createLocalClient', () => {
-  it('mapea idiomas a FLORES y restaura placeholders tras traducir', async () => {
-    const seen: { texts: string[]; src: string; tgt: string }[] = []
+  it('por defecto usa MarianMT por par y NO pasa códigos de idioma', async () => {
+    const seen: { model: string; opts: Record<string, unknown> }[] = []
+    const client = createLocalClient({
+      loadPipeline: async (model) => async (texts, opts) => {
+        seen.push({ model, opts: opts as Record<string, unknown> })
+        return texts.map((t) => ({ translation_text: t.replace('Hello', 'Hola') }))
+      },
+    })
+    const out = await client.translateBatch({
+      sourceLang: 'en',
+      targetLang: 'es',
+      entries: { greet: 'Hello {name}' },
+    })
+
+    expect(seen[0]!.model).toBe('Xenova/opus-mt-en-es') // modelo por par
+    expect(seen[0]!.opts.src_lang).toBeUndefined() // Marian es bilingüe
+    expect(seen[0]!.opts.tgt_lang).toBeUndefined()
+    expect(out.greet).toBe('Hola {name}') // placeholder restaurado
+  })
+
+  it('limpia los marcadores KDE que Marian pega en strings cortos', async () => {
+    const client = createLocalClient({
+      // default Marian: el "modelo" devuelve la basura típica de OPUS
+      loadPipeline: async () => async (texts) =>
+        texts.map(() => ({ translation_text: 'Guardar@info: whatsthis' })),
+    })
+    const out = await client.translateBatch({
+      sourceLang: 'en',
+      targetLang: 'es',
+      entries: { save: 'Save' },
+    })
+    expect(out.save).toBe('Guardar')
+  })
+
+  it('con modelo NLLB mapea idiomas a FLORES', async () => {
+    const seen: { src?: string; tgt?: string; texts: string[] }[] = []
     const fakePipe: TranslatePipeline = async (texts, opts) => {
       seen.push({ texts, src: opts.src_lang, tgt: opts.tgt_lang })
-      // El "modelo" traduce y conserva los sentinelas [0], [1].
       return texts.map((t) => ({ translation_text: t.replace('Hello', 'Hola') }))
     }
 
-    const client = createLocalClient({ loadPipeline: async () => fakePipe })
+    const client = createLocalClient({
+      model: 'Xenova/nllb-200-distilled-600M',
+      loadPipeline: async () => fakePipe,
+    })
     const out = await client.translateBatch({
       sourceLang: 'en',
       targetLang: 'es',
@@ -42,6 +78,36 @@ describe('createLocalClient', () => {
     expect(seen[0]!.tgt).toBe('spa_Latn')
     expect(seen[0]!.texts).toEqual(['Hello [0]']) // se enmascaró antes de traducir
     expect(out.greet).toBe('Hola {name}') // se restauró después
+  })
+
+  it('con modelo M2M-100 pasa códigos ISO 639-1', async () => {
+    let captured: Record<string, unknown> = {}
+    const client = createLocalClient({
+      model: 'Xenova/m2m100_418M',
+      loadPipeline: async () => async (texts, opts) => {
+        captured = opts as Record<string, unknown>
+        return texts.map((t) => ({ translation_text: t }))
+      },
+    })
+    await client.translateBatch({
+      sourceLang: 'en',
+      targetLang: 'pt',
+      entries: { a: 'A' },
+    })
+    expect(captured.src_lang).toBe('en')
+    expect(captured.tgt_lang).toBe('pt')
+  })
+
+  it('error claro si el par Marian no existe (sin fallback a otro modelo)', async () => {
+    const client = createLocalClient({
+      // default Marian; el load falla como si el modelo no estuviera publicado
+      loadPipeline: async () => {
+        throw new Error('404 Not Found')
+      },
+    })
+    await expect(
+      client.translateBatch({ sourceLang: 'en', targetLang: 'pt', entries: { a: 'A' } }),
+    ).rejects.toThrow(/no está publicado en ONNX|nllb-200/)
   })
 
   it('carga el pipeline una sola vez (cache por modelo)', async () => {
@@ -59,10 +125,11 @@ describe('createLocalClient', () => {
     expect(load).toHaveBeenCalledTimes(1)
   })
 
-  it('aplica defaults anti-repetición y permite override', async () => {
+  it('NLLB aplica defaults anti-repetición y permite override', async () => {
     let opts: Record<string, unknown> = {}
     const makeClient = (generation?: Record<string, unknown>) =>
       createLocalClient({
+        model: 'Xenova/nllb-200-distilled-600M',
         generation,
         loadPipeline: async () => async (texts, o) => {
           opts = o as Record<string, unknown>
@@ -89,10 +156,46 @@ describe('createLocalClient', () => {
     expect(opts.no_repeat_ngram_size).toBe(3) // default se conserva
   })
 
-  it('deriva max_new_tokens del input más largo del lote', async () => {
+  it('Marian decodifica natural: no fuerza anti-repetición ni max_new_tokens', async () => {
+    let opts: Record<string, unknown> = {}
+    const client = createLocalClient({
+      // default Marian
+      loadPipeline: async () => async (texts, o) => {
+        opts = o as Record<string, unknown>
+        return texts.map((t) => ({ translation_text: t }))
+      },
+    })
+    await client.translateBatch({
+      sourceLang: 'en',
+      targetLang: 'es',
+      entries: { a: 'Save' },
+    })
+    expect(opts.no_repeat_ngram_size).toBeUndefined()
+    expect(opts.repetition_penalty).toBeUndefined()
+    expect(opts.max_new_tokens).toBeUndefined()
+
+    // pero si el usuario fija algo, se respeta
+    let opts2: Record<string, unknown> = {}
+    const client2 = createLocalClient({
+      generation: { num_beams: 4 },
+      loadPipeline: async () => async (texts, o) => {
+        opts2 = o as Record<string, unknown>
+        return texts.map((t) => ({ translation_text: t }))
+      },
+    })
+    await client2.translateBatch({
+      sourceLang: 'en',
+      targetLang: 'es',
+      entries: { a: 'Save' },
+    })
+    expect(opts2.num_beams).toBe(4)
+  })
+
+  it('NLLB deriva max_new_tokens del input más largo del lote', async () => {
     let opts: Record<string, unknown> = {}
     const makeClient = (generation?: Record<string, unknown>) =>
       createLocalClient({
+        model: 'Xenova/nllb-200-distilled-600M',
         generation,
         loadPipeline: async () => async (texts, o) => {
           opts = o as Record<string, unknown>
@@ -125,9 +228,10 @@ describe('createLocalClient', () => {
     expect(opts.max_new_tokens).toBe(99)
   })
 
-  it('respeta códigos FLORES pasados directo', async () => {
-    let captured = ''
+  it('con NLLB respeta códigos FLORES pasados directo', async () => {
+    let captured: string | undefined = ''
     const client = createLocalClient({
+      model: 'Xenova/nllb-200-distilled-600M',
       loadPipeline: async () => async (texts, opts) => {
         captured = opts.tgt_lang
         return texts.map((t) => ({ translation_text: t }))
@@ -141,8 +245,9 @@ describe('createLocalClient', () => {
     expect(captured).toBe('grn_Latn')
   })
 
-  it('falla con mensaje claro si el idioma no está mapeado', async () => {
+  it('con NLLB falla con mensaje claro si el idioma no está mapeado', async () => {
     const client = createLocalClient({
+      model: 'Xenova/nllb-200-distilled-600M',
       loadPipeline: async () => async (texts) =>
         texts.map((t) => ({ translation_text: t })),
     })

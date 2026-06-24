@@ -61,8 +61,10 @@ export interface AiI18nConfig {
   /** Base URL del provider (override para self-host/proxy). */
   baseUrl?: string
   /**
-   * Modelo del provider 'local' (transformers.js).
-   * Default: 'Xenova/nllb-200-distilled-600M'.
+   * Modelo del provider 'local' (transformers.js). Si se omite, se usa MarianMT
+   * por par de idiomas (`Xenova/opus-mt-{src}-{tgt}`): chico, rápido y bueno con
+   * texto corto, pero solo cubre pares publicados. Para multilingüe en un solo
+   * modelo: 'Xenova/nllb-200-distilled-600M'.
    */
   localModel?: string
   /**
@@ -104,7 +106,7 @@ export interface ResolvedConfig {
   provider: Provider
   model: string
   baseUrl: string
-  localModel: string
+  localModel?: string
   localDtype?: string
   langMap: Record<string, string>
   localGeneration?: GenerationOptions

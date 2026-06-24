@@ -70,7 +70,7 @@ Usa cualquier modelo vía OpenRouter (Claude, GPT, etc.). Mejor para tono, conte
 
 ### `local` — gratis y offline 🆓
 
-Traduce con [NLLB-200](https://huggingface.co/facebook/nllb-200-distilled-600M) corriendo **dentro de Node** vía [transformers.js](https://github.com/huggingface/transformers.js). Sin API key, sin costo, sin red.
+Traduce con un modelo MT corriendo **dentro de Node** vía [transformers.js](https://github.com/huggingface/transformers.js). Sin API key, sin costo, sin red.
 
 ```bash
 npm install @huggingface/transformers   # peer dependency opcional
@@ -79,53 +79,64 @@ npm install @huggingface/transformers   # peer dependency opcional
 ```ts
 export default defineConfig({
   source: 'en',
-  targets: ['es', 'pt'],
+  targets: ['es'],
   path: './locales/{lang}.json',
   provider: 'local',
-  // localModel: 'Xenova/nllb-200-distilled-600M', // default
 })
 ```
 
 ```bash
-npx ai-translate sync   # descarga el modelo (~1.2 GB) la 1ª vez, después offline
+npx ai-translate sync   # descarga el modelo la 1ª vez, después offline
 ```
 
-**Cómo maneja los placeholders**: NLLB es un modelo de traducción puro y tiende a traducir los `{name}`. Para evitarlo, `ai-translate` los **enmascara** (`[0]`, `[1]`) antes de traducir y los **restaura** después. Funciona muy bien con placeholders simples; el **ICU complejo** (`{count, plural, ...}`) puede no sobrevivir → ahí conviene `openrouter`.
+**Modelos** (se eligen con `localModel`):
 
-**Términos sueltos / repeticiones**: con palabras de una sola palabra y sin contexto (ej. labels de categoría), NLLB a veces repite tokens (`"Bull The bull Bull"`). `ai-translate` ya aplica defaults anti-repetición (`no_repeat_ngram_size`, `repetition_penalty`, `max_new_tokens`). Si todavía alucina, ajustalos con `localGeneration`:
+| | default | cobertura | texto corto / UI | tamaño |
+| --- | --- | --- | --- | --- |
+| **MarianMT** (`opus-mt`) | ✅ por par | solo pares publicados | **muy bueno** | ~75 MB |
+| **NLLB-200** | `Xenova/nllb-200-distilled-600M` | 200 idiomas, 1 modelo | divaga con labels | ~1.9 GB |
+| **M2M-100** | `Xenova/m2m100_418M` | 100 idiomas, 1 modelo | flojo en labels | ~0.5 GB |
+
+Por defecto se usa **MarianMT por par** (`Xenova/opus-mt-{src}-{tgt}`): chico, rápido y el mejor con strings cortos de UI. Como es bilingüe, solo descarga el modelo del par que necesitás. Para **un par sin modelo publicado** (ej. `en→pt` no está en ONNX) o para **varios idiomas con un solo modelo**, cambiá a NLLB:
+
+```ts
+provider: 'local',
+localModel: 'Xenova/nllb-200-distilled-600M', // multilingüe
+```
+
+> **Ojo:** ningún modelo MT local "sigue instrucciones" — no podés pedirle "traducí literal, no interpretes" (eso es solo para `openrouter`). Y la jerga de dominio la fallan: cubrila con `glossary`.
+
+**Cómo maneja los placeholders**: estos modelos tienden a traducir los `{name}`. Para evitarlo, `ai-translate` los **enmascara** (`[0]`, `[1]`) antes de traducir y los **restaura** después. Funciona muy bien con placeholders simples; el **ICU complejo** (`{count, plural, ...}`) puede no sobrevivir → ahí conviene `openrouter`.
+
+**Términos sueltos / repeticiones (NLLB/M2M)**: con palabras sueltas, NLLB repite o divaga (`"Bull The bull Bull"`). Para esas familias `ai-translate` aplica defaults anti-repetición (`no_repeat_ngram_size`, `repetition_penalty`) y un `max_new_tokens` proporcional al input. Marian no los necesita (decodifica limpio) así que no se los aplica. Podés ajustar todo con `localGeneration`:
+
+```ts
+provider: 'local',
+localModel: 'Xenova/nllb-200-distilled-600M',
+localGeneration: {
+  no_repeat_ngram_size: 2, // más agresivo contra repeticiones
+  repetition_penalty: 1.5,
+  num_beams: 4,            // beam search: mejor calidad, más lento
+},
+```
+
+**Jerga de dominio → glosario**: para términos que el MT no acierta (ej. ganadería: `Novillo → "The boy"` 😬), fijá la traducción con `glossary`. Esas keys se escriben tal cual, **sin pasar por el modelo** (instantáneo y 100% confiable):
 
 ```ts
 export default defineConfig({
   source: 'en',
-  targets: ['es', 'pt'],
-  path: './locales/{lang}.json',
-  provider: 'local',
-  localGeneration: {
-    no_repeat_ngram_size: 2, // más agresivo contra repeticiones
-    repetition_penalty: 1.5,
-    num_beams: 4,            // beam search: mejor calidad, más lento
-  },
-})
-```
-
-**Jerga de dominio → glosario**: para términos que NLLB no acierta (ej. ganadería: `Novillo → "The boy"` 😬), fijá la traducción con `glossary`. Esas keys se escriben tal cual, **sin pasar por el modelo** (instantáneo y 100% confiable):
-
-```ts
-export default defineConfig({
-  source: 'en',
-  targets: ['es', 'pt'],
+  targets: ['es'],
   path: './locales/{lang}.json',
   provider: 'local',
   glossary: {
     es: { 'category.NOV': 'Novillo', 'category.TORO': 'Toro' },
-    pt: { 'category.NOV': 'Novilho', 'category.TORO': 'Touro' },
   },
 })
 ```
 
-El glosario también sirve con `openrouter` y para imponer terminología de marca. Si cambiás un valor del glosario, esa key se reescribe en la próxima corrida aunque el texto fuente no haya cambiado.
+El glosario también sirve con `openrouter` y para imponer terminología de marca. Si cambiás un valor del glosario, esa key se reescribe en la próxima corrida aunque el texto fuente no haya cambiado. Ver el ejemplo completo en [`examples/ai-translate.local.config.ts`](examples/ai-translate.local.config.ts).
 
-**Modelos cuantizados** (`localDtype: 'fp16' | 'q8'`): cargan más rápido y usan menos RAM, pero en NLLB la calidad baja y la predicción de fin-de-secuencia se debilita (frases cortas "se contagian" de las largas en un batch). Si usás cuantización, agregá `batchSize: 1`. El default `fp32` no lo necesita. Ver [`examples/ai-translate.local.config.ts`](examples/ai-translate.local.config.ts).
+**Modelos cuantizados** (`localDtype: 'fp16' | 'q8'`): cargan más rápido y usan menos RAM, pero degradan la calidad (en NLLB, bastante) y debilitan la predicción de fin-de-secuencia (frases cortas "se contagian" de las largas en un batch). Si usás cuantización con NLLB, agregá `batchSize: 1`. El default no lo necesita.
 
 | | `openrouter` | `local` |
 | --- | --- | --- |
