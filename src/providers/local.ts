@@ -48,11 +48,28 @@ export interface LocalOptions {
  * Defaults anti-repetición. NLLB es muy bueno con oraciones, pero con palabras
  * sueltas tiende a repetir tokens ("Bull The bull Bull"). Estos valores cortan
  * ese comportamiento sin degradar la traducción de frases normales.
+ *
+ * `max_new_tokens` NO va acá a propósito: si el usuario no lo fija, lo calculamos
+ * proporcional al input (ver {@link estimateMaxNewTokens}). Un tope fijo alto
+ * (256) hacía que con labels de 1-2 palabras el modelo divagara.
  */
 const DEFAULT_GENERATION: GenerationOptions = {
   no_repeat_ngram_size: 3,
   repetition_penalty: 1.3,
-  max_new_tokens: 256,
+  early_stopping: true,
+}
+
+/**
+ * Estima el tope de tokens de salida a partir del input más largo del lote.
+ * Una traducción rara vez supera ~3x la longitud del fuente; el +8 da aire a
+ * los textos muy cortos. El cap de 512 evita runaways en inputs largos.
+ */
+function estimateMaxNewTokens(texts: string[]): number {
+  const longest = texts.reduce((max, t) => {
+    const words = t.trim() ? t.trim().split(/\s+/).length : 0
+    return Math.max(max, words)
+  }, 0)
+  return Math.min(512, longest * 3 + 8)
 }
 
 /**
@@ -111,14 +128,21 @@ export function createLocalClient(opts: LocalOptions = {}): ProviderClient {
       if (keys.length === 0) return {}
 
       const masked = keys.map((k) => maskPlaceholders(input.entries[k]!))
+      const maskedTexts = masked.map((m) => m.masked)
 
       if (!pipePromise) pipePromise = load(model)
       const translator = await pipePromise
 
-      const outputs = await translator(masked.map((m) => m.masked), {
+      // Si el usuario no fijó max_new_tokens, lo derivamos del input del lote.
+      const gen = { ...generation }
+      if (gen.max_new_tokens == null) {
+        gen.max_new_tokens = estimateMaxNewTokens(maskedTexts)
+      }
+
+      const outputs = await translator(maskedTexts, {
         src_lang: src,
         tgt_lang: tgt,
-        ...generation,
+        ...gen,
       })
 
       const result: Record<string, string> = {}

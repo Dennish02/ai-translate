@@ -147,10 +147,15 @@ Y `instructions` para tono global: `'Tono informal, voseo argentino.'`
 
 ## Runtime (contenido dinámico)
 
-Para la UI usá los JSON generados (instantáneo). Para texto arbitrario, `dynamic()`:
+Para la UI usá los JSON generados (instantáneo). Para texto arbitrario, `dynamic()`.
+
+> **Browser / bundlers (Vite, Next, etc.):** importá desde el subpath `/runtime`.
+> El entry raíz (`.`) incluye el CLI y el provider local, que usan APIs Node-only
+> (`fs`, `jiti`, transformers) y **no** son bundleables para el cliente. El subpath
+> `/runtime` solo trae `createTranslator` y bundlea limpio.
 
 ```ts
-import { createTranslator } from 'ai-translate'
+import { createTranslator } from '@dennish02/ai-translate/runtime'
 import es from './locales/es.json'
 
 const t = createTranslator({
@@ -161,6 +166,22 @@ const t = createTranslator({
 
 t('home.greeting', { name: 'Ana', count: 3 }) // de archivo, instantáneo
 await t.dynamic('User generated content...')   // traduce al vuelo + cachea
+```
+
+### `dynamic()` en el browser: no expongas tu API key
+
+Llamar a OpenRouter directo desde el cliente **filtra tu API key** (queda en el
+bundle / en el tráfico). En browser, apuntá `baseUrl` a un proxy de tu backend que
+agregue la key del lado servidor, o pasá un `fetchImpl` propio:
+
+```ts
+const t = createTranslator({
+  lang: 'es',
+  ai: {
+    baseUrl: '/api/translate-proxy', // tu endpoint; la key vive en el server
+    // o: fetchImpl: (url, init) => fetch('/api/translate-proxy', init),
+  },
+})
 ```
 
 ## Placeholders soportados

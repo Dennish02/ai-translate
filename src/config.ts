@@ -1,4 +1,3 @@
-import { createJiti } from 'jiti'
 import { pathToFileURL } from 'node:url'
 import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
@@ -80,6 +79,9 @@ async function importConfigFile(file: string): Promise<AiI18nConfig> {
 
   // TS/ESM/CJS: jiti maneja transpilación on-the-fly de TypeScript.
   if (file.endsWith('.ts')) {
+    // Import perezoso: jiti es Node-only (usa `module`/createRequire) y solo se
+    // necesita para configs .ts. Cargarlo a nivel de módulo rompería bundlers.
+    const { createJiti } = await import('jiti')
     const jiti = createJiti(import.meta.url, { interopDefault: true })
     const mod = (await jiti.import(file)) as { default?: AiI18nConfig } & AiI18nConfig
     return mod.default ?? mod

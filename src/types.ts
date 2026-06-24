@@ -10,10 +10,16 @@ export interface GenerationOptions {
   no_repeat_ngram_size?: number
   /** >1 penaliza tokens ya emitidos. Evita "Toro Tauro". */
   repetition_penalty?: number
-  /** Tope duro de tokens generados: corta los bucles infinitos. */
+  /**
+   * Tope duro de tokens generados. Si no se especifica, el provider 'local' lo
+   * calcula proporcional al input (los labels cortos no necesitan 256 tokens, y
+   * darles tantos invita a que el modelo divague).
+   */
   max_new_tokens?: number
   /** Beam search: mejora calidad a costa de velocidad. */
   num_beams?: number
+  /** Corta beam search apenas hay candidatos completos. */
+  early_stopping?: boolean
   [key: string]: unknown
 }
 

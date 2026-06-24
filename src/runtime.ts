@@ -13,7 +13,13 @@ export interface RuntimeOptions {
   ai?: {
     apiKey?: string
     model?: string
+    /**
+     * Base URL del endpoint. En browser, apuntá esto a un proxy de tu backend
+     * para no exponer la API key en el cliente.
+     */
     baseUrl?: string
+    /** `fetch` custom (proxy, headers, auth del lado server). Default: global. */
+    fetchImpl?: typeof fetch
     instructions?: string
     /** Override del cliente (tests). */
     client?: ProviderClient
@@ -38,16 +44,19 @@ export function createTranslator(opts: RuntimeOptions): Translator {
 
   let client: ProviderClient | undefined
   if (opts.ai) {
-    client =
-      opts.ai.client ??
-      (opts.ai.apiKey
-        ? createOpenRouterClient({
-            apiKey: opts.ai.apiKey,
-            model: opts.ai.model ?? 'anthropic/claude-sonnet-4-6',
-            baseUrl: opts.ai.baseUrl,
-            title: 'ai-translate-runtime',
-          })
-        : undefined)
+    const { client: override, apiKey, baseUrl, fetchImpl, model } = opts.ai
+    // En modo proxy la key vive en el server: alcanza con baseUrl o fetchImpl.
+    if (override) {
+      client = override
+    } else if (apiKey || baseUrl || fetchImpl) {
+      client = createOpenRouterClient({
+        apiKey: apiKey ?? '',
+        model: model ?? 'anthropic/claude-sonnet-4-6',
+        baseUrl,
+        fetchImpl,
+        title: 'ai-translate-runtime',
+      })
+    }
   }
 
   const t = ((key: string, params?: Record<string, string | number>) => {

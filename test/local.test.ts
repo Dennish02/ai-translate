@@ -77,7 +77,7 @@ describe('createLocalClient', () => {
     })
     expect(opts.no_repeat_ngram_size).toBe(3)
     expect(opts.repetition_penalty).toBe(1.3)
-    expect(opts.max_new_tokens).toBe(256)
+    expect(opts.early_stopping).toBe(true)
 
     await makeClient({ repetition_penalty: 2, num_beams: 4 }).translateBatch({
       sourceLang: 'en',
@@ -87,6 +87,42 @@ describe('createLocalClient', () => {
     expect(opts.repetition_penalty).toBe(2) // override gana
     expect(opts.num_beams).toBe(4) // extra se pasa tal cual
     expect(opts.no_repeat_ngram_size).toBe(3) // default se conserva
+  })
+
+  it('deriva max_new_tokens del input más largo del lote', async () => {
+    let opts: Record<string, unknown> = {}
+    const makeClient = (generation?: Record<string, unknown>) =>
+      createLocalClient({
+        generation,
+        loadPipeline: async () => async (texts, o) => {
+          opts = o as Record<string, unknown>
+          return texts.map((t) => ({ translation_text: t }))
+        },
+      })
+
+    // 1 palabra -> 1*3 + 8 = 11
+    await makeClient().translateBatch({
+      sourceLang: 'en',
+      targetLang: 'es',
+      entries: { a: 'Save' },
+    })
+    expect(opts.max_new_tokens).toBe(11)
+
+    // lote: usa el más largo (5 palabras) -> 5*3 + 8 = 23
+    await makeClient().translateBatch({
+      sourceLang: 'en',
+      targetLang: 'es',
+      entries: { a: 'Save', b: 'one two three four five' },
+    })
+    expect(opts.max_new_tokens).toBe(23)
+
+    // si el usuario lo fija, manda el suyo
+    await makeClient({ max_new_tokens: 99 }).translateBatch({
+      sourceLang: 'en',
+      targetLang: 'es',
+      entries: { a: 'Save' },
+    })
+    expect(opts.max_new_tokens).toBe(99)
   })
 
   it('respeta códigos FLORES pasados directo', async () => {

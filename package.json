@@ -1,6 +1,6 @@
 {
   "name": "@dennish02/ai-translate",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "publishConfig": {
     "access": "public"
   },
@@ -28,6 +28,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./runtime": {
+      "types": "./dist/runtime.d.ts",
+      "import": "./dist/runtime.js"
     }
   },
   "files": [

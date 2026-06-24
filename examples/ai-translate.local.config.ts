@@ -19,13 +19,13 @@ export default defineConfig({
   // largas y generan basura. batchSize 1 las aísla. Con 'fp32' no hace falta.
   batchSize: 1,
 
-  // Ajuste de generación. Los defaults ya combaten la repetición de NLLB; bajamos
-  // max_new_tokens como tope de seguridad extra para el modo cuantizado.
-  localGeneration: {
-    max_new_tokens: 40,
-    // no_repeat_ngram_size: 3, // default
-    // repetition_penalty: 1.3, // default
-  },
+  // Generación: los defaults ya combaten la repetición y max_new_tokens se
+  // calcula proporcional al input. Solo descomentá para ajustar a mano:
+  // localGeneration: {
+  //   no_repeat_ngram_size: 3,
+  //   repetition_penalty: 1.3,
+  //   num_beams: 4, // beam search: más calidad, más lento
+  // },
 
   // Glosario: traducciones fijas para jerga de dominio (ganadería) y labels
   // cortos que un MT local no acierta. Se aplican tal cual, sin pasar por NLLB.
