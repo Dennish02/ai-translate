@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { createOpenRouterClient } from '../providers/openrouter.js'
+import { createLocalClient } from '../providers/local.js'
 import { readLocale, writeLocale, localePath } from '../store/json.js'
 import { readMeta, writeMeta, type Meta } from '../store/meta.js'
 import { checkPlaceholders } from './validate.js'
@@ -209,6 +210,9 @@ async function translateWithValidation(args: {
 }
 
 function buildClient(config: ResolvedConfig): ProviderClient {
+  if (config.provider === 'local') {
+    return createLocalClient({ model: config.localModel, langMap: config.langMap })
+  }
   if (!config.apiKey) {
     throw new Error(
       '[ai-translate] falta API key. Definí OPENROUTER_API_KEY o `apiKey` en la config.',

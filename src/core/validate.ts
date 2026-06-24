@@ -106,6 +106,36 @@ function consumeBraceGroups(
   return result
 }
 
+/**
+ * Reemplaza los placeholders "simples" por sentinelas `[0]`, `[1]`, ... antes
+ * de mandar el texto a un modelo MT (NLLB/OPUS) que tiende a traducirlos. Luego
+ * `unmaskPlaceholders` los restaura. No enmascara bloques ICU (llaves anidadas):
+ * esos quedan a cargo de la validación posterior.
+ */
+const MASK_RE =
+  /(\$\{[^{}]*\})|(\{\{\s*[\w.$-]+\s*\}\})|(\{\s*[\w.$-]+\s*\})|(%(?:\d+\$)?[sd@ifge])|(:[A-Za-z_]\w*)/g
+
+export function maskPlaceholders(text: string): {
+  masked: string
+  tokens: string[]
+} {
+  const tokens: string[] = []
+  const masked = text.replace(MASK_RE, (match) => {
+    const i = tokens.length
+    tokens.push(match)
+    return `[${i}]`
+  })
+  return { masked, tokens }
+}
+
+export function unmaskPlaceholders(text: string, tokens: string[]): string {
+  // Tolerante a que el modelo meta espacios dentro del sentinela: `[ 0 ]`.
+  return text.replace(/\[\s*(\d+)\s*\]/g, (whole, n: string) => {
+    const i = Number(n)
+    return i < tokens.length ? tokens[i]! : whole
+  })
+}
+
 export interface PlaceholderCheck {
   ok: boolean
   /** tokens del fuente que faltan en la traducción */

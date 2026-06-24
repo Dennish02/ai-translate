@@ -9,6 +9,7 @@ const DEFAULTS = {
   provider: 'openrouter' as const,
   model: 'anthropic/claude-sonnet-4-6',
   baseUrl: 'https://openrouter.ai/api/v1',
+  localModel: 'Xenova/nllb-200-distilled-600M',
   batchSize: 50,
   maxRetries: 2,
 }
@@ -32,6 +33,8 @@ export function resolveConfig(config: AiI18nConfig): ResolvedConfig {
     provider: config.provider ?? DEFAULTS.provider,
     model: config.model ?? DEFAULTS.model,
     baseUrl: config.baseUrl ?? DEFAULTS.baseUrl,
+    localModel: config.localModel ?? DEFAULTS.localModel,
+    langMap: config.langMap ?? {},
     batchSize: config.batchSize ?? DEFAULTS.batchSize,
     maxRetries: config.maxRetries ?? DEFAULTS.maxRetries,
     apiKey: config.apiKey ?? process.env.OPENROUTER_API_KEY,

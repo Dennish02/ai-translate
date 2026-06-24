@@ -45,6 +45,14 @@
   "dependencies": {
     "jiti": "^2.4.2"
   },
+  "peerDependencies": {
+    "@huggingface/transformers": "^3.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@huggingface/transformers": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "@types/node": "^22.10.0",
     "tsup": "^8.3.5",

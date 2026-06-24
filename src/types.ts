@@ -1,4 +1,4 @@
-export type Provider = 'openrouter'
+export type Provider = 'openrouter' | 'local'
 
 export interface ProviderClient {
   /**
@@ -29,7 +29,7 @@ export interface AiI18nConfig {
    * Ej: './locales/{lang}.json'
    */
   path: string
-  /** Proveedor de IA. Por ahora 'openrouter'. */
+  /** Proveedor: 'openrouter' (IA por API) o 'local' (modelo en proceso, gratis). */
   provider?: Provider
   /** Modelo en formato OpenRouter, ej: 'anthropic/claude-sonnet-4-6'. */
   model?: string
@@ -37,6 +37,16 @@ export interface AiI18nConfig {
   apiKey?: string
   /** Base URL del provider (override para self-host/proxy). */
   baseUrl?: string
+  /**
+   * Modelo del provider 'local' (transformers.js).
+   * Default: 'Xenova/nllb-200-distilled-600M'.
+   */
+  localModel?: string
+  /**
+   * Override del mapeo de códigos de idioma a FLORES-200 para el provider
+   * 'local'. Ej: { gn: 'grn_Latn' }. Se mergea sobre el mapa interno.
+   */
+  langMap?: Record<string, string>
   /** Ruta a un JSON con contexto por key: { "home.title": "Título del hero" }. */
   context?: string
   /** Instrucciones globales de tono/estilo para el traductor. */
@@ -47,10 +57,18 @@ export interface AiI18nConfig {
   maxRetries?: number
 }
 
-export type ResolvedConfig = Required<
-  Omit<AiI18nConfig, 'context' | 'instructions' | 'apiKey'>
-> & {
+export interface ResolvedConfig {
+  source: string
+  targets: string[]
+  path: string
+  provider: Provider
+  model: string
+  baseUrl: string
+  localModel: string
+  langMap: Record<string, string>
+  batchSize: number
+  maxRetries: number
+  apiKey?: string
   context?: string
   instructions?: string
-  apiKey?: string
 }
