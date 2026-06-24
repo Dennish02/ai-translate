@@ -40,6 +40,13 @@ export interface LocalOptions {
    */
   model?: string
   /**
+   * Modelo de respaldo cuando el par Marian directo no existe (ej. es->pt no
+   * está en ONNX). Si se setea, en vez de fallar caemos a este modelo
+   * multilingüe (ej. 'Xenova/m2m100_418M' ~0.5 GB, o NLLB ~1.9 GB). Solo se
+   * descarga si de verdad hace falta. Sin esto, un par faltante lanza un error.
+   */
+  fallbackModel?: string
+  /**
    * Precisión de los pesos ONNX: 'fp32' (default, mejor calidad), 'fp16',
    * 'q8', 'q4'... Los cuantizados pesan y cargan menos pero degradan la calidad
    * (en NLLB, bastante). Útil si 'fp32' no carga por falta de memoria.
@@ -132,6 +139,58 @@ export function createLocalClient(opts: LocalOptions = {}): ProviderClient {
   // Cargar un modelo es caro: cacheamos un pipeline por nombre de modelo. Con el
   // default Marian (por par) eso es uno por idioma destino; con NLLB, uno solo.
   const pipes = new Map<string, Promise<TranslatePipeline>>()
+  const loadCached = (model: string): Promise<TranslatePipeline> => {
+    let p = pipes.get(model)
+    if (!p) {
+      p = load(model)
+      pipes.set(model, p)
+    }
+    return p
+  }
+
+  /**
+   * Resuelve y carga el modelo para un par. Con el default Marian (por par), si
+   * el modelo no existe cae a `fallbackModel` si está configurado; si no, lanza
+   * un error claro con las opciones.
+   */
+  const resolveTranslator = async (
+    src: string,
+    tgt: string,
+  ): Promise<{ model: string; translator: TranslatePipeline }> => {
+    const primary = opts.model ?? marianModel(src, tgt)
+    try {
+      return { model: primary, translator: await loadCached(primary) }
+    } catch (err) {
+      pipes.delete(primary) // no cachear un fallo
+      const usingDefaultMarian = !opts.model && modelFamily(primary) === 'marian'
+      if (usingDefaultMarian && opts.fallbackModel) {
+        try {
+          return {
+            model: opts.fallbackModel,
+            translator: await loadCached(opts.fallbackModel),
+          }
+        } catch (fbErr) {
+          pipes.delete(opts.fallbackModel)
+          throw new Error(
+            `[ai-translate] falló el modelo Marian "${primary}" (${src}->${tgt}) ` +
+              `y también el fallback "${opts.fallbackModel}". ` +
+              `Detalle: ${(fbErr as Error).message}`,
+          )
+        }
+      }
+      if (usingDefaultMarian) {
+        throw new Error(
+          `[ai-translate] no pude cargar el modelo Marian "${primary}" para ` +
+            `${src}->${tgt}: ese par no está publicado en ONNX. Opciones: ` +
+            `(1) localFallbackModel: 'Xenova/m2m100_418M' para caer a un ` +
+            `multilingüe automáticamente; (2) localModel: ` +
+            `'Xenova/nllb-200-distilled-600M'; o (3) usá el provider 'openrouter'. ` +
+            `Detalle: ${(err as Error).message}`,
+        )
+      }
+      throw err
+    }
+  }
 
   return {
     async translateBatch(input: TranslateBatchInput) {
@@ -139,33 +198,12 @@ export function createLocalClient(opts: LocalOptions = {}): ProviderClient {
       if (keys.length === 0) return {}
 
       const { sourceLang, targetLang } = input
-      const model = opts.model ?? marianModel(sourceLang, targetLang)
-      const family = modelFamily(model)
 
       const masked = keys.map((k) => maskPlaceholders(input.entries[k]!))
       const maskedTexts = masked.map((m) => m.masked)
 
-      let pipePromise = pipes.get(model)
-      if (!pipePromise) {
-        pipePromise = load(model)
-        pipes.set(model, pipePromise)
-      }
-      let translator: TranslatePipeline
-      try {
-        translator = await pipePromise
-      } catch (err) {
-        pipes.delete(model) // no cachear un fallo
-        if (!opts.model && family === 'marian') {
-          throw new Error(
-            `[ai-translate] no pude cargar el modelo Marian "${model}" para ` +
-              `${sourceLang}->${targetLang}: ese par no está publicado en ONNX. ` +
-              `Seteá un modelo multilingüe en la config con ` +
-              `localModel: 'Xenova/nllb-200-distilled-600M', o usá el provider ` +
-              `'openrouter' para ese idioma. Detalle: ${(err as Error).message}`,
-          )
-        }
-        throw err
-      }
+      const { model, translator } = await resolveTranslator(sourceLang, targetLang)
+      const family = modelFamily(model)
 
       // Idiomas: Marian es bilingüe (no recibe códigos); NLLB usa FLORES-200;
       // M2M-100 usa ISO 639-1.

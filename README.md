@@ -97,11 +97,18 @@ npx ai-translate sync   # descarga el modelo la 1ª vez, después offline
 | **NLLB-200** | `Xenova/nllb-200-distilled-600M` | 200 idiomas, 1 modelo | divaga con labels | ~1.9 GB |
 | **M2M-100** | `Xenova/m2m100_418M` | 100 idiomas, 1 modelo | flojo en labels | ~0.5 GB |
 
-Por defecto se usa **MarianMT por par** (`Xenova/opus-mt-{src}-{tgt}`): chico, rápido y el mejor con strings cortos de UI. Como es bilingüe, solo descarga el modelo del par que necesitás. Para **un par sin modelo publicado** (ej. `en→pt` no está en ONNX) o para **varios idiomas con un solo modelo**, cambiá a NLLB:
+Por defecto se usa **MarianMT por par** (`Xenova/opus-mt-{src}-{tgt}`): chico, rápido y el mejor con strings cortos de UI. Como es bilingüe, solo descarga el modelo del par que necesitás. Para **varios idiomas con un solo modelo**, cambiá a NLLB:
 
 ```ts
 provider: 'local',
 localModel: 'Xenova/nllb-200-distilled-600M', // multilingüe
+```
+
+**Par sin modelo Marian** (ej. `es→pt` no está en ONNX): por defecto falla con un error claro. Para que **caiga automáticamente** a un multilingüe en vez de fallar, seteá `localFallbackModel` (solo se descarga si de verdad falta el par directo):
+
+```ts
+provider: 'local',                              // Marian por par cuando existe…
+localFallbackModel: 'Xenova/m2m100_418M',       // …y M2M (~0.5 GB) cuando no
 ```
 
 > **Ojo:** ningún modelo MT local "sigue instrucciones" — no podés pedirle "traducí literal, no interpretes" (eso es solo para `openrouter`). Y la jerga de dominio la fallan: cubrila con `glossary`.

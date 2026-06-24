@@ -32,6 +32,7 @@ export function resolveConfig(config: AiI18nConfig): ResolvedConfig {
     model: config.model ?? DEFAULTS.model,
     baseUrl: config.baseUrl ?? DEFAULTS.baseUrl,
     localModel: config.localModel,
+    localFallbackModel: config.localFallbackModel,
     localDtype: config.localDtype,
     langMap: config.langMap ?? {},
     localGeneration: config.localGeneration,

@@ -98,7 +98,7 @@ describe('createLocalClient', () => {
     expect(captured.tgt_lang).toBe('pt')
   })
 
-  it('error claro si el par Marian no existe (sin fallback a otro modelo)', async () => {
+  it('error claro (con opciones) si el par Marian no existe y no hay fallback', async () => {
     const client = createLocalClient({
       // default Marian; el load falla como si el modelo no estuviera publicado
       loadPipeline: async () => {
@@ -107,7 +107,27 @@ describe('createLocalClient', () => {
     })
     await expect(
       client.translateBatch({ sourceLang: 'en', targetLang: 'pt', entries: { a: 'A' } }),
-    ).rejects.toThrow(/no está publicado en ONNX|nllb-200/)
+    ).rejects.toThrow(/localFallbackModel|nllb-200/)
+  })
+
+  it('cae al fallbackModel cuando el par Marian no existe', async () => {
+    const loaded: string[] = []
+    const client = createLocalClient({
+      fallbackModel: 'Xenova/m2m100_418M',
+      loadPipeline: async (model) => {
+        loaded.push(model)
+        if (model.startsWith('Xenova/opus-mt')) throw new Error('404 Not Found')
+        return async (texts, o) => texts.map((t) => ({ translation_text: `${o.tgt_lang}:${t}` }))
+      },
+    })
+    const out = await client.translateBatch({
+      sourceLang: 'es',
+      targetLang: 'pt',
+      entries: { a: 'Hola' },
+    })
+
+    expect(loaded).toEqual(['Xenova/opus-mt-es-pt', 'Xenova/m2m100_418M']) // probó Marian, cayó a M2M
+    expect(out.a).toBe('pt:Hola') // M2M se usó con código ISO (pt)
   })
 
   it('carga el pipeline una sola vez (cache por modelo)', async () => {

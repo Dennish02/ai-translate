@@ -68,6 +68,13 @@ export interface AiI18nConfig {
    */
   localModel?: string
   /**
+   * Modelo de respaldo del provider 'local' cuando el par Marian directo no
+   * existe (ej. es->pt). Si se setea, en vez de fallar se cae a este modelo
+   * multilingüe (ej. 'Xenova/m2m100_418M' ~0.5 GB). Solo se descarga si hace
+   * falta. Sin esto, un par faltante lanza un error con las opciones.
+   */
+  localFallbackModel?: string
+  /**
    * Precisión de los pesos del modelo 'local': 'fp32' (default), 'fp16', 'q8',
    * 'q4'. Cuantizar reduce memoria/tiempo de carga pero degrada la calidad
    * (en NLLB, bastante). Usalo solo si 'fp32' no carga por memoria.
@@ -107,6 +114,7 @@ export interface ResolvedConfig {
   model: string
   baseUrl: string
   localModel?: string
+  localFallbackModel?: string
   localDtype?: string
   langMap: Record<string, string>
   localGeneration?: GenerationOptions

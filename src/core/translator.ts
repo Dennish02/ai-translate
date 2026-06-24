@@ -225,6 +225,7 @@ function buildClient(config: ResolvedConfig): ProviderClient {
   if (config.provider === 'local') {
     return createLocalClient({
       model: config.localModel,
+      fallbackModel: config.localFallbackModel,
       dtype: config.localDtype,
       langMap: config.langMap,
       generation: config.localGeneration,
