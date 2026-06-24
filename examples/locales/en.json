@@ -1,0 +1,10 @@
+{
+  "home": {
+    "title": "Welcome to the farm",
+    "greeting": "Hello {name}, you have {count} pending tasks"
+  },
+  "actions": {
+    "save": "Save",
+    "cancel": "Cancel"
+  }
+}

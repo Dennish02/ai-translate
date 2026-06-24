@@ -1,0 +1,4 @@
+{
+  "actions.save": "Botón para guardar un formulario",
+  "home.greeting": "Saludo del dashboard; {name} es el nombre del usuario y {count} la cantidad de tareas"
+}

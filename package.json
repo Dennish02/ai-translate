@@ -1,0 +1,54 @@
+{
+  "name": "ai-translate",
+  "version": "0.1.0",
+  "description": "i18n con traducción automática por IA (OpenRouter / Claude / GPT). CLI build-time + runtime opcional.",
+  "type": "module",
+  "license": "MIT",
+  "keywords": [
+    "i18n",
+    "internationalization",
+    "translation",
+    "ai",
+    "llm",
+    "openrouter",
+    "anthropic",
+    "claude",
+    "openai"
+  ],
+  "bin": {
+    "ai-translate": "./dist/cli.js"
+  },
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "jiti": "^2.4.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsup": "^8.3.5",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
