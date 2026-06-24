@@ -6,5 +6,11 @@
   "actions": {
     "save": "Save",
     "cancel": "Cancel"
+  },
+  "category": {
+    "NOV": "Steer",
+    "TORO": "Bull",
+    "VACA": "Cow",
+    "TERNERO": "Calf"
   }
 }

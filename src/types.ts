@@ -1,5 +1,22 @@
 export type Provider = 'openrouter' | 'local'
 
+/**
+ * Parámetros de generación del provider 'local' (kwargs de `model.generate` de
+ * transformers.js). Tipamos los que de verdad usamos para combatir las
+ * repeticiones de NLLB y dejamos abierto el resto.
+ */
+export interface GenerationOptions {
+  /** Prohíbe repetir n-gramas de este tamaño. Evita "bull bull". */
+  no_repeat_ngram_size?: number
+  /** >1 penaliza tokens ya emitidos. Evita "Toro Tauro". */
+  repetition_penalty?: number
+  /** Tope duro de tokens generados: corta los bucles infinitos. */
+  max_new_tokens?: number
+  /** Beam search: mejora calidad a costa de velocidad. */
+  num_beams?: number
+  [key: string]: unknown
+}
+
 export interface ProviderClient {
   /**
    * Traduce un lote de entradas. Devuelve un mapa key -> texto traducido.
@@ -43,10 +60,27 @@ export interface AiI18nConfig {
    */
   localModel?: string
   /**
+   * Precisión de los pesos del modelo 'local': 'fp32' (default), 'fp16', 'q8',
+   * 'q4'. Cuantizar reduce memoria/tiempo de carga pero degrada la calidad
+   * (en NLLB, bastante). Usalo solo si 'fp32' no carga por memoria.
+   */
+  localDtype?: string
+  /**
    * Override del mapeo de códigos de idioma a FLORES-200 para el provider
    * 'local'. Ej: { gn: 'grn_Latn' }. Se mergea sobre el mapa interno.
    */
   langMap?: Record<string, string>
+  /**
+   * Parámetros de generación para el provider 'local'. Se mergean sobre defaults
+   * anti-repetición pensados para términos cortos (labels), donde NLLB alucina.
+   */
+  localGeneration?: GenerationOptions
+  /**
+   * Traducciones fijas por idioma y key, que se aplican tal cual saltándose el
+   * modelo. Imprescindible para jerga de dominio que un MT local no acierta
+   * (ej. ganadería: "Novillo" -> "Steer"). Forma: { en: { "cat.NOV": "Steer" } }.
+   */
+  glossary?: Record<string, Record<string, string>>
   /** Ruta a un JSON con contexto por key: { "home.title": "Título del hero" }. */
   context?: string
   /** Instrucciones globales de tono/estilo para el traductor. */
@@ -65,7 +99,10 @@ export interface ResolvedConfig {
   model: string
   baseUrl: string
   localModel: string
+  localDtype?: string
   langMap: Record<string, string>
+  localGeneration?: GenerationOptions
+  glossary: Record<string, Record<string, string>>
   batchSize: number
   maxRetries: number
   apiKey?: string

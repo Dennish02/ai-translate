@@ -92,6 +92,41 @@ npx ai-translate sync   # descarga el modelo (~1.2 GB) la 1ª vez, después offl
 
 **Cómo maneja los placeholders**: NLLB es un modelo de traducción puro y tiende a traducir los `{name}`. Para evitarlo, `ai-translate` los **enmascara** (`[0]`, `[1]`) antes de traducir y los **restaura** después. Funciona muy bien con placeholders simples; el **ICU complejo** (`{count, plural, ...}`) puede no sobrevivir → ahí conviene `openrouter`.
 
+**Términos sueltos / repeticiones**: con palabras de una sola palabra y sin contexto (ej. labels de categoría), NLLB a veces repite tokens (`"Bull The bull Bull"`). `ai-translate` ya aplica defaults anti-repetición (`no_repeat_ngram_size`, `repetition_penalty`, `max_new_tokens`). Si todavía alucina, ajustalos con `localGeneration`:
+
+```ts
+export default defineConfig({
+  source: 'en',
+  targets: ['es', 'pt'],
+  path: './locales/{lang}.json',
+  provider: 'local',
+  localGeneration: {
+    no_repeat_ngram_size: 2, // más agresivo contra repeticiones
+    repetition_penalty: 1.5,
+    num_beams: 4,            // beam search: mejor calidad, más lento
+  },
+})
+```
+
+**Jerga de dominio → glosario**: para términos que NLLB no acierta (ej. ganadería: `Novillo → "The boy"` 😬), fijá la traducción con `glossary`. Esas keys se escriben tal cual, **sin pasar por el modelo** (instantáneo y 100% confiable):
+
+```ts
+export default defineConfig({
+  source: 'en',
+  targets: ['es', 'pt'],
+  path: './locales/{lang}.json',
+  provider: 'local',
+  glossary: {
+    es: { 'category.NOV': 'Novillo', 'category.TORO': 'Toro' },
+    pt: { 'category.NOV': 'Novilho', 'category.TORO': 'Touro' },
+  },
+})
+```
+
+El glosario también sirve con `openrouter` y para imponer terminología de marca. Si cambiás un valor del glosario, esa key se reescribe en la próxima corrida aunque el texto fuente no haya cambiado.
+
+**Modelos cuantizados** (`localDtype: 'fp16' | 'q8'`): cargan más rápido y usan menos RAM, pero en NLLB la calidad baja y la predicción de fin-de-secuencia se debilita (frases cortas "se contagian" de las largas en un batch). Si usás cuantización, agregá `batchSize: 1`. El default `fp32` no lo necesita. Ver [`examples/ai-translate.local.config.ts`](examples/ai-translate.local.config.ts).
+
 | | `openrouter` | `local` |
 | --- | --- | --- |
 | Costo | centavos/uso | **$0** |

@@ -93,6 +93,7 @@ async function syncLang(args: {
   const file = localePath(config.path, target)
   const existing = await readLocale(file)
   const langMeta = (meta[target] ??= {})
+  const overrides = config.glossary[target] ?? {}
 
   // Decidir qué traducir: faltante, o el fuente cambió desde la última vez.
   // Si una traducción ya existe pero no tiene metadata (ej. primera corrida
@@ -104,8 +105,11 @@ async function syncLang(args: {
     const missing = !(key in existing)
     const tracked = key in langMeta
     const changed = tracked && langMeta[key] !== currentHash
+    // El glosario gana: si la key tiene override y el target no coincide aún,
+    // hay que (re)escribirla aunque el fuente no haya cambiado.
+    const overrideStale = key in overrides && existing[key] !== overrides[key]
 
-    if (options.force || missing || changed) {
+    if (options.force || missing || changed || overrideStale) {
       todo[key] = text
     } else if (!tracked) {
       langMeta[key] = currentHash // adoptar traducción preexistente
@@ -134,7 +138,15 @@ async function syncLang(args: {
 
   const translated: Record<string, string> = {}
   const failed: string[] = []
-  const batches = chunk(Object.entries(todo), config.batchSize)
+
+  // Glosario: se aplica tal cual y se retira del lote que va al modelo.
+  const toModel: [string, string][] = []
+  for (const [key, text] of Object.entries(todo)) {
+    if (key in overrides) translated[key] = overrides[key]!
+    else toModel.push([key, text])
+  }
+
+  const batches = chunk(toModel, config.batchSize)
 
   for (const batch of batches) {
     const entries = Object.fromEntries(batch)
@@ -211,7 +223,12 @@ async function translateWithValidation(args: {
 
 function buildClient(config: ResolvedConfig): ProviderClient {
   if (config.provider === 'local') {
-    return createLocalClient({ model: config.localModel, langMap: config.langMap })
+    return createLocalClient({
+      model: config.localModel,
+      dtype: config.localDtype,
+      langMap: config.langMap,
+      generation: config.localGeneration,
+    })
   }
   if (!config.apiKey) {
     throw new Error(

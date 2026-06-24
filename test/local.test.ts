@@ -59,6 +59,36 @@ describe('createLocalClient', () => {
     expect(load).toHaveBeenCalledTimes(1)
   })
 
+  it('aplica defaults anti-repetición y permite override', async () => {
+    let opts: Record<string, unknown> = {}
+    const makeClient = (generation?: Record<string, unknown>) =>
+      createLocalClient({
+        generation,
+        loadPipeline: async () => async (texts, o) => {
+          opts = o as Record<string, unknown>
+          return texts.map((t) => ({ translation_text: t }))
+        },
+      })
+
+    await makeClient().translateBatch({
+      sourceLang: 'en',
+      targetLang: 'es',
+      entries: { a: 'A' },
+    })
+    expect(opts.no_repeat_ngram_size).toBe(3)
+    expect(opts.repetition_penalty).toBe(1.3)
+    expect(opts.max_new_tokens).toBe(256)
+
+    await makeClient({ repetition_penalty: 2, num_beams: 4 }).translateBatch({
+      sourceLang: 'en',
+      targetLang: 'es',
+      entries: { a: 'A' },
+    })
+    expect(opts.repetition_penalty).toBe(2) // override gana
+    expect(opts.num_beams).toBe(4) // extra se pasa tal cual
+    expect(opts.no_repeat_ngram_size).toBe(3) // default se conserva
+  })
+
   it('respeta códigos FLORES pasados directo', async () => {
     let captured = ''
     const client = createLocalClient({

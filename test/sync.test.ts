@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { sync } from '../src/core/translator.js'
 import { resolveConfig } from '../src/config.js'
+import { readLocale } from '../src/store/json.js'
 import type { ProviderClient } from '../src/types.js'
 
 let dir: string
@@ -17,12 +18,13 @@ afterEach(async () => {
   await rm(dir, { recursive: true, force: true })
 })
 
-function config() {
+function config(extra?: Parameters<typeof resolveConfig>[0]) {
   return resolveConfig({
     source: 'en',
     targets: ['es'],
     path: join(dir, 'locales', '{lang}.json'),
     apiKey: 'test',
+    ...extra,
   })
 }
 
@@ -127,6 +129,61 @@ describe('sync', () => {
     await writeFile(en, JSON.stringify({ greet: 'Hello there' }))
     await sync(config(), { client })
     expect(last).toBe('Hello there') // detectó el cambio y re-tradujo
+  })
+
+  it('aplica el glosario sin pasar por el modelo', async () => {
+    await writeFile(
+      join(dir, 'locales', 'en.json'),
+      JSON.stringify({ 'cat.NOV': 'Steer', greet: 'Hello' }),
+    )
+    const calls: string[][] = []
+    const client: ProviderClient = {
+      async translateBatch(input) {
+        calls.push(Object.keys(input.entries))
+        return { greet: 'Hola' }
+      },
+    }
+
+    const cfg = config({
+      source: 'en',
+      targets: ['es'],
+      path: join(dir, 'locales', '{lang}.json'),
+      apiKey: 'test',
+      glossary: { es: { 'cat.NOV': 'Novillo' } },
+    })
+    await sync(cfg, { client })
+
+    expect(calls).toEqual([['greet']]) // 'cat.NOV' no fue al modelo
+    const es = await readLocale(join(dir, 'locales', 'es.json'))
+    expect(es).toEqual({ 'cat.NOV': 'Novillo', greet: 'Hola' })
+  })
+
+  it('reaplica el glosario si cambia el override (sin tocar el fuente)', async () => {
+    await writeFile(
+      join(dir, 'locales', 'en.json'),
+      JSON.stringify({ 'cat.NOV': 'Steer' }),
+    )
+    const client: ProviderClient = {
+      async translateBatch() {
+        return {}
+      },
+    }
+    const mk = (val: string) =>
+      config({
+        source: 'en',
+        targets: ['es'],
+        path: join(dir, 'locales', '{lang}.json'),
+        apiKey: 'test',
+        glossary: { es: { 'cat.NOV': val } },
+      })
+
+    await sync(mk('Novillo'), { client })
+    let es = await readLocale(join(dir, 'locales', 'es.json'))
+    expect(es['cat.NOV']).toBe('Novillo')
+
+    await sync(mk('Toro'), { client }) // cambió el override, fuente igual
+    es = await readLocale(join(dir, 'locales', 'es.json'))
+    expect(es['cat.NOV']).toBe('Toro')
   })
 
   it('detecta keys huérfanas', async () => {

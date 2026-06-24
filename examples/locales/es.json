@@ -1,0 +1,16 @@
+{
+  "actions": {
+    "cancel": "Cancelar",
+    "save": "Guardar"
+  },
+  "category": {
+    "NOV": "Novillo",
+    "TERNERO": "Ternero",
+    "TORO": "Toro",
+    "VACA": "Vaca"
+  },
+  "home": {
+    "greeting": "Hola {name}, tienes {count} tareas pendientes.",
+    "title": "Bienvenido a la granja."
+  }
+}

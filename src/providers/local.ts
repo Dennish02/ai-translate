@@ -1,5 +1,11 @@
 import { maskPlaceholders, unmaskPlaceholders } from '../core/validate.js'
-import type { ProviderClient, TranslateBatchInput } from '../types.js'
+import type {
+  GenerationOptions,
+  ProviderClient,
+  TranslateBatchInput,
+} from '../types.js'
+
+export type { GenerationOptions } from '../types.js'
 
 /**
  * Provider 'local': traduce con un modelo MT corriendo dentro de Node vía
@@ -14,16 +20,39 @@ import type { ProviderClient, TranslateBatchInput } from '../types.js'
 /** Firma mínima del pipeline de traducción de transformers.js. */
 export type TranslatePipeline = (
   texts: string[],
-  options: { src_lang: string; tgt_lang: string },
+  options: { src_lang: string; tgt_lang: string } & GenerationOptions,
 ) => Promise<Array<{ translation_text: string }>>
 
 export interface LocalOptions {
   /** Modelo HF. Default: 'Xenova/nllb-200-distilled-600M'. */
   model?: string
+  /**
+   * Precisión de los pesos ONNX: 'fp32' (default, mejor calidad), 'fp16',
+   * 'q8', 'q4'... Los cuantizados pesan y cargan menos pero degradan la calidad
+   * (en NLLB, bastante). Útil si 'fp32' no carga por falta de memoria.
+   */
+  dtype?: string
   /** Override/extensión del mapa de códigos de idioma a FLORES-200. */
   langMap?: Record<string, string>
+  /**
+   * Parámetros de generación. Se mergean sobre los defaults pensados para
+   * términos cortos sin contexto (labels), que es donde NLLB más alucina.
+   * Ver {@link GenerationOptions}.
+   */
+  generation?: GenerationOptions
   /** Inyección del cargador de pipeline (para tests). */
   loadPipeline?: (model: string) => Promise<TranslatePipeline>
+}
+
+/**
+ * Defaults anti-repetición. NLLB es muy bueno con oraciones, pero con palabras
+ * sueltas tiende a repetir tokens ("Bull The bull Bull"). Estos valores cortan
+ * ese comportamiento sin degradar la traducción de frases normales.
+ */
+const DEFAULT_GENERATION: GenerationOptions = {
+  no_repeat_ngram_size: 3,
+  repetition_penalty: 1.3,
+  max_new_tokens: 256,
 }
 
 /**
@@ -66,7 +95,9 @@ const FLORES: Record<string, string> = {
 export function createLocalClient(opts: LocalOptions = {}): ProviderClient {
   const model = opts.model ?? 'Xenova/nllb-200-distilled-600M'
   const langMap = { ...FLORES, ...opts.langMap }
-  const load = opts.loadPipeline ?? defaultLoadPipeline
+  const generation = { ...DEFAULT_GENERATION, ...opts.generation }
+  const load =
+    opts.loadPipeline ?? ((m: string) => defaultLoadPipeline(m, opts.dtype))
 
   // Cargar el modelo es caro: lo hacemos una sola vez por cliente.
   let pipePromise: Promise<TranslatePipeline> | undefined
@@ -84,10 +115,11 @@ export function createLocalClient(opts: LocalOptions = {}): ProviderClient {
       if (!pipePromise) pipePromise = load(model)
       const translator = await pipePromise
 
-      const outputs = await translator(
-        masked.map((m) => m.masked),
-        { src_lang: src, tgt_lang: tgt },
-      )
+      const outputs = await translator(masked.map((m) => m.masked), {
+        src_lang: src,
+        tgt_lang: tgt,
+        ...generation,
+      })
 
       const result: Record<string, string> = {}
       keys.forEach((key, i) => {
@@ -113,8 +145,17 @@ function toFlores(lang: string, map: Record<string, string>): string {
   return code
 }
 
-async function defaultLoadPipeline(model: string): Promise<TranslatePipeline> {
-  let mod: { pipeline: (task: string, model: string) => Promise<unknown> }
+async function defaultLoadPipeline(
+  model: string,
+  dtype?: string,
+): Promise<TranslatePipeline> {
+  let mod: {
+    pipeline: (
+      task: string,
+      model: string,
+      options?: Record<string, unknown>,
+    ) => Promise<unknown>
+  }
   try {
     // Import opcional: solo se necesita si se usa el provider 'local'.
     // Specifier no-literal a propósito: evita que TS resuelva el peer dep
@@ -127,9 +168,11 @@ async function defaultLoadPipeline(model: string): Promise<TranslatePipeline> {
         'Instalalo con: npm install @huggingface/transformers',
     )
   }
-  const pipe = (await mod.pipeline('translation', model)) as (
-    input: string[],
-    options: { src_lang: string; tgt_lang: string },
-  ) => Promise<Array<{ translation_text: string }>>
+  const options = dtype ? { dtype } : undefined
+  const pipe = (await mod.pipeline(
+    'translation',
+    model,
+    options,
+  )) as TranslatePipeline
   return pipe
 }
