@@ -1,6 +1,9 @@
 {
-  "name": "ai-translate",
-  "version": "0.1.0",
+  "name": "@dennish02/ai-translate",
+  "version": "0.1.1",
+  "publishConfig": {
+    "access": "public"
+  },
   "description": "i18n con traducción automática por IA (OpenRouter / Claude / GPT). CLI build-time + runtime opcional.",
   "type": "module",
   "license": "MIT",
